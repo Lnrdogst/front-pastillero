@@ -182,38 +182,44 @@ export const DeviceProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         return { success: true };
       }
 
-      // En Supabase: Ejecutar consulta UPDATE directa para setear el cuidador_id del usuario autenticado
-      // Cumple con la política RLS que restringe UPDATE únicamente al cuidador actual
-      const { data: updatedDevices, error: updateErr } = await supabase
+      // En Supabase: UPSERT — inserta el dispositivo si no existe, o actualiza si ya existe.
+      // La política RLS permite INSERT si cuidador_id = auth.uid(),
+      // y UPDATE si cuidador_id IS NULL o ya pertenece al usuario actual.
+      const { data: upsertedDevices, error: upsertErr } = await supabase
         .from('dispositivos')
-        .update({
-          cuidador_id: user.id,
-          nombre: nombre?.trim() || `Dispensador (${formattedMac.slice(-5)})`,
-          pastillas_restantes: initialPills,
-          estado: 'online',
-          ultima_conexion: new Date().toISOString(),
-        })
-        .eq('mac_id', formattedMac)
+        .upsert(
+          {
+            mac_id: formattedMac,
+            cuidador_id: user.id,
+            nombre: nombre?.trim() || `Dispensador (${formattedMac.slice(-5)})`,
+            pastillas_restantes: initialPills,
+            estado: 'online',
+            ultima_conexion: new Date().toISOString(),
+          },
+          {
+            onConflict: 'mac_id', // Si mac_id ya existe, ejecuta UPDATE en vez de INSERT
+          }
+        )
         .select();
 
-      if (updateErr) {
-        console.error('[DeviceContext] Error en consulta UPDATE de dispositivos:', updateErr);
-        const details = updateErr.details ? ` - ${updateErr.details}` : '';
-        const hint = updateErr.hint ? ` (${updateErr.hint})` : '';
+      if (upsertErr) {
+        console.error('[DeviceContext] Error en UPSERT de dispositivos:', upsertErr);
+        const details = upsertErr.details ? ` — ${upsertErr.details}` : '';
+        const hint = upsertErr.hint ? ` (${upsertErr.hint})` : '';
         return {
           success: false,
-          error: `Error en UPDATE 'dispositivos' [Código ${updateErr.code || 'RLS'}]: ${updateErr.message}${details}${hint}`,
+          error: `Error en UPSERT 'dispositivos' [${upsertErr.code || 'RLS'}]: ${upsertErr.message}${details}${hint}`,
         };
       }
 
-      if (!updatedDevices || updatedDevices.length === 0) {
+      if (!upsertedDevices || upsertedDevices.length === 0) {
         return {
           success: false,
-          error: `No se pudo vincular el dispensador '${formattedMac}'. La consulta UPDATE no afectó ninguna fila. Verifica que el dispositivo exista previamente en la tabla 'dispositivos' y que su 'cuidador_id' no esté asignado a otro usuario (violación de política RLS).`,
+          error: `No se pudo vincular '${formattedMac}'. El UPSERT no retornó filas. Esto puede deberse a que otro cuidador ya tiene este dispositivo vinculado (bloqueado por RLS).`,
         };
       }
 
-      const linkedRecord = updatedDevices[0];
+      const linkedRecord = upsertedDevices[0];
       setDevice(linkedRecord);
       await loadDeviceData();
       return { success: true };
