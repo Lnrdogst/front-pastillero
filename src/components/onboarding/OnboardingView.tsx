@@ -11,7 +11,8 @@ import {
   Tag, 
   Layers,
   HelpCircle,
-  Hash
+  Hash,
+  X
 } from 'lucide-react';
 
 interface OnboardingViewProps {
@@ -57,14 +58,25 @@ export const OnboardingView: React.FC<OnboardingViewProps> = ({ onComplete, canC
       return;
     }
 
-    const res = await linkDevice(cleanMac, nombre, pastillas);
-    if (!res.success) {
-      setError(res.error || 'No se pudo vincular el dispositivo.');
-    } else {
-      setSuccess(true);
-      setTimeout(() => {
-        onComplete();
-      }, 1200);
+    try {
+      const res = await linkDevice(cleanMac, nombre, pastillas);
+      if (!res.success) {
+        setError(res.error || 'Error al ejecutar la consulta UPDATE en la tabla dispositivos.');
+      } else {
+        setSuccess(true);
+        setTimeout(() => {
+          onComplete();
+        }, 1200);
+      }
+    } catch (err: unknown) {
+      console.error('[OnboardingView] Error capturado en formulario:', err);
+      const errorMsg =
+        typeof err === 'object' && err !== null && 'message' in err
+          ? String((err as { message: unknown }).message)
+          : err instanceof Error
+          ? err.message
+          : 'Error inesperado al ejecutar el UPDATE en la tabla dispositivos';
+      setError(errorMsg);
     }
   };
 
@@ -116,12 +128,32 @@ export const OnboardingView: React.FC<OnboardingViewProps> = ({ onComplete, canC
           <form onSubmit={handleSubmit} className="p-6 sm:p-10 space-y-6">
             
             {error && (
-              <div className="p-4 rounded-xl bg-red-50 border border-red-200 flex items-start gap-3 text-xs text-red-700 animate-slide-up">
-                <AlertCircle className="w-4 h-4 text-red-500 shrink-0 mt-0.5" />
-                <div>
-                  <p className="font-bold">Error de vinculación</p>
-                  <p>{error}</p>
+              <div 
+                role="alert"
+                className="p-4 rounded-2xl bg-red-50 border border-red-200 flex items-start justify-between gap-3 text-xs text-red-800 animate-slide-up shadow-xs"
+              >
+                <div className="flex items-start gap-3 flex-1">
+                  <AlertCircle className="w-5 h-5 text-red-600 shrink-0 mt-0.5" />
+                  <div className="space-y-1.5 flex-1">
+                    <p className="font-extrabold text-red-900 text-sm">
+                      Fallo en la vinculación (Consulta UPDATE a 'dispositivos')
+                    </p>
+                    <p className="text-red-700 leading-relaxed font-mono text-[11px] bg-red-100/70 p-2.5 rounded-xl border border-red-200/80 break-words select-all">
+                      {error}
+                    </p>
+                    <p className="text-[11px] text-red-600 font-medium">
+                      Verifica las políticas RLS de Supabase y asegúrate de que el MAC ID exista en la tabla 'dispositivos'.
+                    </p>
+                  </div>
                 </div>
+                <button
+                  type="button"
+                  onClick={() => setError(null)}
+                  className="p-1 rounded-lg text-red-400 hover:text-red-700 hover:bg-red-100/60 transition-colors"
+                  title="Cerrar mensaje de error"
+                >
+                  <X className="w-4 h-4" />
+                </button>
               </div>
             )}
 

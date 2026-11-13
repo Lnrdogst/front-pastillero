@@ -58,7 +58,13 @@ export const AuthView: React.FC = () => {
     } else {
       const res = await signIn(email, password);
       if (!res.success) {
-        setError(res.error || 'Credenciales inválidas. Verifica tu correo y contraseña.');
+        if (res.status === 400) {
+          setError('Error 400 (Bad Request): Credenciales inválidas o solicitud incorrecta. Se forzó la limpieza de sesión y tokens locales para evitar estados corruptos.');
+        } else if (res.status === 429) {
+          setError('Error 429 (Too Many Requests): Demasiados intentos de inicio de sesión. La sesión local se ha purgado. Espera un momento antes de volver a intentar.');
+        } else {
+          setError(res.error || 'Credenciales inválidas. Verifica tu correo y contraseña.');
+        }
       }
     }
 

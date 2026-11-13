@@ -1,6 +1,7 @@
 -- ==============================================================================
 -- Esquema de Base de Datos para el Dispensador de Pastillas IoT en Supabase
 -- Tablas: cuidadores, dispositivos, horarios, historial_tomas
+-- Incluye: Trigger para auth.users y Políticas RLS Auditadas
 -- ==============================================================================
 
 -- 1. Tabla: Cuidadores (Perfiles vinculados al Supabase Auth)
@@ -29,7 +30,7 @@ CREATE TABLE IF NOT EXISTS public.dispositivos (
 CREATE TABLE IF NOT EXISTS public.horarios (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     dispositivo_id UUID REFERENCES public.dispositivos(id) ON DELETE CASCADE,
-    mac_id TEXT,
+    mac_id TEXT NOT NULL,
     hora_programada TIME NOT NULL, -- Ej: 08:00:00 o 14:30:00
     estado TEXT DEFAULT 'activo' CHECK (estado IN ('activo', 'inactivo')),
     medicamento TEXT,
@@ -44,7 +45,7 @@ CREATE TABLE IF NOT EXISTS public.horarios (
 CREATE TABLE IF NOT EXISTS public.historial_tomas (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     dispositivo_id UUID REFERENCES public.dispositivos(id) ON DELETE CASCADE,
-    mac_id TEXT,
+    mac_id TEXT NOT NULL,
     evento TEXT NOT NULL CHECK (evento IN ('dispensado', 'atasco', 'tapa_abierta')),
     detalles TEXT,
     medicamento TEXT,
@@ -52,51 +53,106 @@ CREATE TABLE IF NOT EXISTS public.historial_tomas (
     created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
 );
 
--- Habilitar Row Level Security (RLS)
+-- ==============================================================================
+-- TRIGGER: Sincronización automática de auth.users a public.cuidadores
+-- ==============================================================================
+CREATE OR REPLACE FUNCTION public.handle_new_user()
+RETURNS TRIGGER 
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+BEGIN
+  INSERT INTO public.cuidadores (id, email, nombre, telefono, created_at)
+  VALUES (
+    NEW.id,
+    NEW.email,
+    COALESCE(NEW.raw_user_meta_data->>'nombre', split_part(NEW.email, '@', 1)),
+    NEW.raw_user_meta_data->>'telefono',
+    COALESCE(NEW.created_at, timezone('utc'::text, now()))
+  )
+  ON CONFLICT (id) DO UPDATE SET
+    email = EXCLUDED.email,
+    nombre = COALESCE(EXCLUDED.nombre, cuidadores.nombre),
+    telefono = COALESCE(EXCLUDED.telefono, cuidadores.telefono);
+
+  RETURN NEW;
+END;
+$$;
+
+DROP TRIGGER IF EXISTS on_auth_user_created ON auth.users;
+CREATE TRIGGER on_auth_user_created
+  AFTER INSERT ON auth.users
+  FOR EACH ROW
+  EXECUTE FUNCTION public.handle_new_user();
+
+-- ==============================================================================
+-- Habilitar Row Level Security (RLS) en todas las tablas
+-- ==============================================================================
 ALTER TABLE public.cuidadores ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.dispositivos ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.horarios ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.historial_tomas ENABLE ROW LEVEL SECURITY;
 
--- Políticas de Seguridad (RLS)
--- Cuidadores: Cada cuidador puede ver y editar su propio perfil
-CREATE POLICY "Cuidadores pueden ver su propio perfil" 
-ON public.cuidadores FOR SELECT USING (auth.uid() = id);
+-- ==============================================================================
+-- POLÍTICAS RLS DEFINITIVAS
+-- ==============================================================================
 
-CREATE POLICY "Cuidadores pueden actualizar su propio perfil" 
-ON public.cuidadores FOR UPDATE USING (auth.uid() = id);
+-- 1. Cuidadores: SOLO LECTURA para el propio usuario autenticado
+DROP POLICY IF EXISTS "cuidadores_read_only_own_profile" ON public.cuidadores;
+CREATE POLICY "cuidadores_read_only_own_profile" 
+ON public.cuidadores 
+FOR SELECT 
+TO authenticated 
+USING (auth.uid() = id);
 
-CREATE POLICY "Cuidadores pueden insertar su propio perfil" 
-ON public.cuidadores FOR INSERT WITH CHECK (auth.uid() = id);
+-- 2. Dispositivos:
+-- SELECT para dispositivos vinculados al usuario o libres
+DROP POLICY IF EXISTS "dispositivos_select_linked_or_available" ON public.dispositivos;
+CREATE POLICY "dispositivos_select_linked_or_available" 
+ON public.dispositivos 
+FOR SELECT 
+TO authenticated 
+USING (cuidador_id = auth.uid() OR cuidador_id IS NULL);
 
--- Dispositivos: El cuidador puede ver y gestionar sus dispensadores vinculados
-CREATE POLICY "Cuidadores pueden ver sus dispositivos" 
-ON public.dispositivos FOR SELECT USING (auth.uid() = cuidador_id);
+-- UPDATE únicamente para setear su propio cuidador_id
+DROP POLICY IF EXISTS "dispositivos_update_set_own_cuidador_id" ON public.dispositivos;
+CREATE POLICY "dispositivos_update_set_own_cuidador_id" 
+ON public.dispositivos 
+FOR UPDATE 
+TO authenticated 
+USING (cuidador_id IS NULL OR cuidador_id = auth.uid()) 
+WITH CHECK (cuidador_id = auth.uid());
 
-CREATE POLICY "Cuidadores pueden vincular o actualizar sus dispositivos" 
-ON public.dispositivos FOR ALL USING (auth.uid() = cuidador_id);
-
-CREATE POLICY "Permitir vinculación inicial por mac_id" 
-ON public.dispositivos FOR INSERT WITH CHECK (auth.uid() = cuidador_id);
-
--- Horarios: El cuidador puede gestionar los horarios de sus dispositivos
-CREATE POLICY "Cuidadores gestionan horarios de sus dispositivos" 
-ON public.horarios FOR ALL USING (
-    dispositivo_id IN (SELECT id FROM public.dispositivos WHERE cuidador_id = auth.uid())
-    OR mac_id IN (SELECT mac_id FROM public.dispositivos WHERE cuidador_id = auth.uid())
+-- 3. Horarios: CRUD completo condicionado a que el mac_id pertenezca al cuidador actual
+DROP POLICY IF EXISTS "horarios_crud_by_linked_mac_id" ON public.horarios;
+CREATE POLICY "horarios_crud_by_linked_mac_id" 
+ON public.horarios 
+FOR ALL 
+TO authenticated 
+USING (
+    mac_id IN (SELECT d.mac_id FROM public.dispositivos d WHERE d.cuidador_id = auth.uid())
+)
+WITH CHECK (
+    mac_id IN (SELECT d.mac_id FROM public.dispositivos d WHERE d.cuidador_id = auth.uid())
 );
 
--- Historial: Lectura e inserción de eventos IoT
-CREATE POLICY "Cuidadores ven historial de sus dispositivos" 
-ON public.historial_tomas FOR SELECT USING (
-    dispositivo_id IN (SELECT id FROM public.dispositivos WHERE cuidador_id = auth.uid())
-    OR mac_id IN (SELECT mac_id FROM public.dispositivos WHERE cuidador_id = auth.uid())
+-- 4. Historial: CRUD completo condicionado a que el mac_id pertenezca al cuidador actual
+DROP POLICY IF EXISTS "historial_tomas_crud_by_linked_mac_id" ON public.historial_tomas;
+CREATE POLICY "historial_tomas_crud_by_linked_mac_id" 
+ON public.historial_tomas 
+FOR ALL 
+TO authenticated 
+USING (
+    mac_id IN (SELECT d.mac_id FROM public.dispositivos d WHERE d.cuidador_id = auth.uid())
+)
+WITH CHECK (
+    mac_id IN (SELECT d.mac_id FROM public.dispositivos d WHERE d.cuidador_id = auth.uid())
 );
 
-CREATE POLICY "Dispositivos IoT pueden registrar eventos en historial" 
-ON public.historial_tomas FOR INSERT WITH CHECK (true);
-
--- Habilitar Supabase Realtime para notificaciones en vivo
+-- ==============================================================================
+-- Habilitar Supabase Realtime
+-- ==============================================================================
 ALTER PUBLICATION supabase_realtime ADD TABLE public.dispositivos;
 ALTER PUBLICATION supabase_realtime ADD TABLE public.horarios;
 ALTER PUBLICATION supabase_realtime ADD TABLE public.historial_tomas;

@@ -182,54 +182,49 @@ export const DeviceProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         return { success: true };
       }
 
-      // En Supabase: verificar si el dispositivo ya existe para actualizarlo o crearlo
-      const { data: existingDevice } = await supabase
+      // En Supabase: Ejecutar consulta UPDATE directa para setear el cuidador_id del usuario autenticado
+      // Cumple con la política RLS que restringe UPDATE únicamente al cuidador actual
+      const { data: updatedDevices, error: updateErr } = await supabase
         .from('dispositivos')
-        .select('*')
+        .update({
+          cuidador_id: user.id,
+          nombre: nombre?.trim() || `Dispensador (${formattedMac.slice(-5)})`,
+          pastillas_restantes: initialPills,
+          estado: 'online',
+          ultima_conexion: new Date().toISOString(),
+        })
         .eq('mac_id', formattedMac)
-        .maybeSingle();
+        .select();
 
-      let linkedRecord: Dispositivo;
-
-      if (existingDevice) {
-        // Actualizar asignando al cuidador
-        const { data: updated, error: updateErr } = await supabase
-          .from('dispositivos')
-          .update({
-            cuidador_id: user.id,
-            nombre: nombre?.trim() || existingDevice.nombre || `Dispensador (${formattedMac.slice(-5)})`,
-            pastillas_restantes: initialPills ?? existingDevice.pastillas_restantes,
-            estado: 'online',
-          })
-          .eq('mac_id', formattedMac)
-          .select()
-          .single();
-
-        if (updateErr) throw updateErr;
-        linkedRecord = updated;
-      } else {
-        // Insertar nuevo dispositivo
-        const { data: inserted, error: insertErr } = await supabase
-          .from('dispositivos')
-          .insert({
-            mac_id: formattedMac,
-            cuidador_id: user.id,
-            pastillas_restantes: initialPills,
-            nombre: nombre?.trim() || `Dispensador (${formattedMac.slice(-5)})`,
-            estado: 'online',
-          })
-          .select()
-          .single();
-
-        if (insertErr) throw insertErr;
-        linkedRecord = inserted;
+      if (updateErr) {
+        console.error('[DeviceContext] Error en consulta UPDATE de dispositivos:', updateErr);
+        const details = updateErr.details ? ` - ${updateErr.details}` : '';
+        const hint = updateErr.hint ? ` (${updateErr.hint})` : '';
+        return {
+          success: false,
+          error: `Error en UPDATE 'dispositivos' [Código ${updateErr.code || 'RLS'}]: ${updateErr.message}${details}${hint}`,
+        };
       }
 
+      if (!updatedDevices || updatedDevices.length === 0) {
+        return {
+          success: false,
+          error: `No se pudo vincular el dispensador '${formattedMac}'. La consulta UPDATE no afectó ninguna fila. Verifica que el dispositivo exista previamente en la tabla 'dispositivos' y que su 'cuidador_id' no esté asignado a otro usuario (violación de política RLS).`,
+        };
+      }
+
+      const linkedRecord = updatedDevices[0];
       setDevice(linkedRecord);
       await loadDeviceData();
       return { success: true };
     } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : 'Error al vincular el dispositivo';
+      console.error('[DeviceContext] Excepción en linkDevice:', err);
+      const msg =
+        typeof err === 'object' && err !== null && 'message' in err
+          ? String((err as { message: unknown }).message)
+          : err instanceof Error
+          ? err.message
+          : 'Error inesperado de red al ejecutar la consulta UPDATE en dispositivos';
       return { success: false, error: msg };
     } finally {
       setLinkingDevice(false);
