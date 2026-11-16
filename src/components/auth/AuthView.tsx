@@ -91,7 +91,7 @@ export const AuthView: React.FC = () => {
                 <Pill className="w-7 h-7 rotate-45" />
               </div>
               <div>
-                <span className="text-2xl font-black tracking-tight">PillSync <span className="text-cyan-200">IoT</span></span>
+                <span className="text-2xl font-black tracking-tight">MediCheck</span>
                 <p className="text-xs text-cyan-100 font-medium tracking-wide uppercase">Portal de Cuidadores</p>
               </div>
             </div>
@@ -291,7 +291,7 @@ export const AuthView: React.FC = () => {
                 <div className="w-5 h-5 border-2 border-white/40 border-t-white rounded-full animate-spin" />
               ) : (
                 <>
-                  <span>{isRegister ? 'Crear Cuenta de Cuidador' : 'Iniciar Sesión en PillSync'}</span>
+                  <span>{isRegister ? 'Crear Cuenta de Cuidador' : 'Iniciar Sesión en MediCheck'}</span>
                   <ArrowRight className="w-4 h-4" />
                 </>
               )}

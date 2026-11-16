@@ -1,4 +1,4 @@
-# PillSync IoT - Aplicación Web para Dispensador Inteligente de Pastillas
+# MediCheck - Aplicación Web para Dispensador Inteligente de Pastillas
 
 Aplicación frontend moderna y reactiva desarrollada con **React 18**, **TypeScript**, **Vite**, **Tailwind CSS** y **@supabase/supabase-js** para la supervisión y control de un dispensador físico de medicamentos IoT.
 

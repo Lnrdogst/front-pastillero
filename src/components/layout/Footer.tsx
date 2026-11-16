@@ -10,7 +10,7 @@ export const Footer: React.FC = () => {
           <div className="w-6 h-6 rounded-lg bg-cyan-600 text-white flex items-center justify-center">
             <Pill className="w-3.5 h-3.5 rotate-45" />
           </div>
-          <span className="font-bold text-slate-800">PillSync IoT</span>
+          <span className="font-bold text-slate-800">MediCheck</span>
           <span className="text-slate-300">|</span>
           <span className="text-slate-400">Sistema Inteligente para Cuidadores</span>
         </div>
