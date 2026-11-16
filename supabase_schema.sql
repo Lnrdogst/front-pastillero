@@ -1,6 +1,6 @@
 -- ==============================================================================
 -- SCRIPT SQL DEFINITIVO — Ejecutar en el SQL Editor de Supabase
--- Proyecto: PillSync IoT (front-pastillero)
+-- Proyecto: MediCheck (front-pastillero)
 -- 
 -- Este script es idempotente: puede ejecutarse múltiples veces sin conflictos.
 -- Incluye:

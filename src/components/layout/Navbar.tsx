@@ -34,7 +34,7 @@ export const Navbar: React.FC<NavbarProps> = ({ currentView, onNavigate }) => {
             </div>
             <div>
               <div className="flex items-center gap-2">
-                <span className="font-bold text-lg text-slate-900 tracking-tight">PillSync <span className="text-cyan-600 font-extrabold">IoT</span></span>
+                <span className="font-bold text-lg text-slate-900 tracking-tight">MediCheck</span>
                 {isDemoMode && (
                   <span className="inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-full bg-amber-100 text-amber-800 border border-amber-200">
                     <Sparkles className="w-3 h-3" /> Modo Demo
