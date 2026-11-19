@@ -12,13 +12,13 @@ export const AppContent: React.FC = () => {
   const { device, loading: deviceLoading } = useDevice();
   const [viewOverride, setViewOverride] = useState<'dashboard' | 'onboarding' | null>(null);
 
-  // Pantalla de carga inicial
-  if (authLoading) {
+  // Pantalla de carga inicial (Auth y sincronización de dispositivos)
+  if (authLoading || (user && deviceLoading && !device && viewOverride === null)) {
     return (
       <div className="min-h-screen bg-slate-900 flex flex-col items-center justify-center p-4">
         <div className="w-12 h-12 border-4 border-cyan-500/30 border-t-cyan-500 rounded-full animate-spin mb-4" />
         <p className="text-white font-bold text-sm">Cargando MediCheck...</p>
-        <p className="text-slate-400 text-xs mt-1">Conectando con Supabase Auth</p>
+        <p className="text-slate-400 text-xs mt-1">Sincronizando con Supabase...</p>
       </div>
     );
   }

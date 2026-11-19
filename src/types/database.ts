@@ -25,7 +25,7 @@ export interface Dispositivo {
 }
 
 export interface Horario {
-  id: string;
+  id: string | number;
   dispositivo_id?: string;
   mac_id?: string;
   hora_programada: string; // formato "HH:mm" o "HH:mm:ss"
@@ -38,7 +38,7 @@ export interface Horario {
 }
 
 export interface HistorialToma {
-  id: string;
+  id: string | number;
   dispositivo_id?: string;
   mac_id?: string;
   evento: EventoHistorial;

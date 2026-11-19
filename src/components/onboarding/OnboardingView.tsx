@@ -136,14 +136,20 @@ export const OnboardingView: React.FC<OnboardingViewProps> = ({ onComplete, canC
                   <AlertCircle className="w-5 h-5 text-red-600 shrink-0 mt-0.5" />
                   <div className="space-y-1.5 flex-1">
                     <p className="font-extrabold text-red-900 text-sm">
-                      Fallo en la vinculación (Consulta UPDATE a 'dispositivos')
+                      No se pudo vincular el dispensador
                     </p>
-                    <p className="text-red-700 leading-relaxed font-mono text-[11px] bg-red-100/70 p-2.5 rounded-xl border border-red-200/80 break-words select-all">
+                    <p className="text-red-700 leading-relaxed font-semibold text-xs bg-red-100/70 p-2.5 rounded-xl border border-red-200/80 break-words select-all">
                       {error}
                     </p>
-                    <p className="text-[11px] text-red-600 font-medium">
-                      Verifica las políticas RLS de Supabase y asegúrate de que el MAC ID exista en la tabla 'dispositivos'.
-                    </p>
+                    {error.includes('vinculado a otra cuenta') ? (
+                      <p className="text-[11px] text-red-600 font-medium">
+                        Cada pastillero físico solo puede pertenecer a un cuidador a la vez. Si este equipo te pertenece, solicita al usuario anterior que lo desvincule.
+                      </p>
+                    ) : (
+                      <p className="text-[11px] text-red-600 font-medium">
+                        Verifica que la dirección MAC tenga el formato correcto (ej: AA:BB:CC:DD:EE:FF) y que la conexión a Supabase esté activa.
+                      </p>
+                    )}
                   </div>
                 </div>
                 <button

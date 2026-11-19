@@ -18,7 +18,7 @@ export const SchedulesSection: React.FC = () => {
   const { schedules, createSchedule, updateSchedule, deleteSchedule, toggleScheduleStatus } = useDevice();
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingSchedule, setEditingSchedule] = useState<Horario | null>(null);
-  const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [deletingId, setDeletingId] = useState<string | number | null>(null);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
   const showToast = (msg: string) => {
@@ -57,14 +57,15 @@ export const SchedulesSection: React.FC = () => {
     }
   };
 
-  const handleToggle = async (id: string, currentStatus: EstadoHorario) => {
+  const handleToggle = async (id: string | number, currentStatus: EstadoHorario) => {
+    const isCurrentlyActive = currentStatus === 'activo' || (currentStatus as unknown) === true;
     const res = await toggleScheduleStatus(id);
     if (res.success) {
-      showToast(`Horario cambiado a ${currentStatus === 'activo' ? 'inactivo' : 'activo'}`);
+      showToast(`Horario cambiado a ${isCurrentlyActive ? 'inactivo' : 'activo'}`);
     }
   };
 
-  const handleDeleteConfirm = async (id: string) => {
+  const handleDeleteConfirm = async (id: string | number) => {
     const res = await deleteSchedule(id);
     setDeletingId(null);
     if (res.success) {
@@ -72,7 +73,7 @@ export const SchedulesSection: React.FC = () => {
     }
   };
 
-  const activeCount = schedules.filter((s) => s.estado === 'activo').length;
+  const activeCount = schedules.filter((s) => s.estado === 'activo' || (s.estado as unknown) === true).length;
 
   return (
     <section className="bg-white rounded-3xl shadow-sm border border-slate-200/80 p-6 sm:p-8">
@@ -131,7 +132,7 @@ export const SchedulesSection: React.FC = () => {
       ) : (
         <div className="mt-6 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {schedules.map((schedule) => {
-            const isActive = schedule.estado === 'activo';
+            const isActive = schedule.estado === 'activo' || (schedule.estado as unknown) === true;
             const isBeingDeleted = deletingId === schedule.id;
 
             return (
@@ -233,7 +234,7 @@ export const SchedulesSection: React.FC = () => {
                 {/* Card Actions (Edit & Delete) */}
                 <div className="pt-3 border-t border-slate-100 flex items-center justify-between">
                   <span className="text-[10px] text-slate-400 font-mono">
-                    ID: {schedule.id.slice(0, 8)}
+                    ID: {String(schedule.id).slice(0, 8)}
                   </span>
 
                   <div className="flex items-center gap-1">

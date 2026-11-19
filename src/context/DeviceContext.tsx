@@ -4,6 +4,20 @@ import { mockStorage } from '../lib/mockService';
 import { Dispositivo, Horario, HistorialToma, EventoHistorial } from '../types/database';
 import { useAuth } from './AuthContext';
 
+// Normalizador de direcciones MAC (ej: "aabbccddeeff", "aa-bb-cc-dd-ee-ff" -> "AA:BB:CC:DD:EE:FF")
+export const normalizeMacAddress = (input: string): string => {
+  const raw = input.trim().toUpperCase();
+  const hexOnly = raw.replace(/[^0-9A-F]/g, '');
+  if (hexOnly.length === 12) {
+    return hexOnly.match(/.{1,2}/g)!.join(':');
+  }
+  const parts = raw.split(/[:\-]/).filter(Boolean);
+  if (parts.length === 6 && parts.every((p) => p.length === 2 && /^[0-9A-F]{2}$/.test(p))) {
+    return parts.join(':');
+  }
+  return raw;
+};
+
 interface DeviceContextType {
   device: Dispositivo | null;
   devices: Dispositivo[];
@@ -15,9 +29,9 @@ interface DeviceContextType {
   selectDevice: (macId: string) => void;
   updatePillsCount: (count: number) => Promise<{ success: boolean; error?: string }>;
   createSchedule: (data: Omit<Horario, 'id' | 'created_at'>) => Promise<{ success: boolean; error?: string }>;
-  updateSchedule: (id: string, updates: Partial<Horario>) => Promise<{ success: boolean; error?: string }>;
-  toggleScheduleStatus: (id: string) => Promise<{ success: boolean; error?: string }>;
-  deleteSchedule: (id: string) => Promise<{ success: boolean; error?: string }>;
+  updateSchedule: (id: string | number, updates: Partial<Horario>) => Promise<{ success: boolean; error?: string }>;
+  toggleScheduleStatus: (id: string | number) => Promise<{ success: boolean; error?: string }>;
+  deleteSchedule: (id: string | number) => Promise<{ success: boolean; error?: string }>;
   simulateEvent: (evento: EventoHistorial, detalles?: string) => Promise<{ success: boolean; error?: string }>;
   refreshData: () => Promise<void>;
 }
@@ -158,7 +172,17 @@ export const DeviceProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     if (!user) return { success: false, error: 'Debes iniciar sesión para vincular un dispositivo' };
 
     setLinkingDevice(true);
-    const formattedMac = macId.trim().toUpperCase();
+    const formattedMac = normalizeMacAddress(macId);
+
+    // Validación de formato MAC (6 octetos hexadecimales)
+    const macRegex = /^([0-9A-F]{2}:){5}[0-9A-F]{2}$/;
+    if (!macRegex.test(formattedMac)) {
+      setLinkingDevice(false);
+      return {
+        success: false,
+        error: 'Formato de MAC inválido. Debe tener 6 pares hexadecimales (ej. AA:BB:CC:DD:EE:FF).',
+      };
+    }
 
     try {
       if (!isSupabaseConfigured || isDemoMode) {
@@ -193,6 +217,7 @@ export const DeviceProvider: React.FC<{ children: React.ReactNode }> = ({ childr
             cuidador_id: user.id,
             nombre: nombre?.trim() || `Dispensador (${formattedMac.slice(-5)})`,
             pastillas_restantes: initialPills,
+            capacidad_maxima: 30,
             estado: 'online',
             ultima_conexion: new Date().toISOString(),
           },
@@ -204,18 +229,27 @@ export const DeviceProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
       if (upsertErr) {
         console.error('[DeviceContext] Error en UPSERT de dispositivos:', upsertErr);
-        const details = upsertErr.details ? ` — ${upsertErr.details}` : '';
-        const hint = upsertErr.hint ? ` (${upsertErr.hint})` : '';
+        // Error de RLS cuando la MAC pertenece a otro cuidador
+        if (
+          upsertErr.code === '42501' ||
+          upsertErr.message?.toLowerCase().includes('policy') ||
+          upsertErr.message?.toLowerCase().includes('violates row-level security')
+        ) {
+          return {
+            success: false,
+            error: 'Este dispositivo ya está vinculado a otra cuenta',
+          };
+        }
         return {
           success: false,
-          error: `Error en UPSERT 'dispositivos' [${upsertErr.code || 'RLS'}]: ${upsertErr.message}${details}${hint}`,
+          error: upsertErr.message || 'Error al vincular dispositivo en Supabase',
         };
       }
 
       if (!upsertedDevices || upsertedDevices.length === 0) {
         return {
           success: false,
-          error: `No se pudo vincular '${formattedMac}'. El UPSERT no retornó filas. Esto puede deberse a que otro cuidador ya tiene este dispositivo vinculado (bloqueado por RLS).`,
+          error: 'Este dispositivo ya está vinculado a otra cuenta',
         };
       }
 
@@ -230,7 +264,7 @@ export const DeviceProvider: React.FC<{ children: React.ReactNode }> = ({ childr
           ? String((err as { message: unknown }).message)
           : err instanceof Error
           ? err.message
-          : 'Error inesperado de red al ejecutar la consulta UPDATE en dispositivos';
+          : 'Error inesperado de red al vincular el dispositivo';
       return { success: false, error: msg };
     } finally {
       setLinkingDevice(false);
@@ -321,14 +355,14 @@ export const DeviceProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     }
   };
 
-  const updateSchedule = async (id: string, updates: Partial<Horario>) => {
+  const updateSchedule = async (id: string | number, updates: Partial<Horario>) => {
     try {
       if (!isSupabaseConfigured || isDemoMode) {
-        const existing = schedules.find((s) => s.id === id);
+        const existing = schedules.find((s) => String(s.id) === String(id));
         if (!existing) return { success: false, error: 'Horario no encontrado' };
         const updated = { ...existing, ...updates };
         mockStorage.saveSchedule(updated);
-        setSchedules((prev) => prev.map((s) => (s.id === id ? updated : s)));
+        setSchedules((prev) => prev.map((s) => (String(s.id) === String(id) ? updated : s)));
         return { success: true };
       }
 
@@ -340,7 +374,7 @@ export const DeviceProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         .single();
 
       if (error) throw error;
-      setSchedules((prev) => prev.map((s) => (s.id === id ? data : s)));
+      setSchedules((prev) => prev.map((s) => (String(s.id) === String(id) ? data : s)));
       return { success: true };
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Error al modificar horario';
@@ -348,24 +382,25 @@ export const DeviceProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     }
   };
 
-  const toggleScheduleStatus = async (id: string) => {
-    const target = schedules.find((s) => s.id === id);
+  const toggleScheduleStatus = async (id: string | number) => {
+    const target = schedules.find((s) => String(s.id) === String(id));
     if (!target) return { success: false, error: 'Horario no encontrado' };
-    const nuevoEstado = target.estado === 'activo' ? 'inactivo' : 'activo';
+    const isActivo = target.estado === 'activo' || (target.estado as unknown) === true;
+    const nuevoEstado = isActivo ? 'inactivo' : 'activo';
     return updateSchedule(id, { estado: nuevoEstado });
   };
 
-  const deleteSchedule = async (id: string) => {
+  const deleteSchedule = async (id: string | number) => {
     try {
       if (!isSupabaseConfigured || isDemoMode) {
-        mockStorage.deleteSchedule(id);
-        setSchedules((prev) => prev.filter((s) => s.id !== id));
+        mockStorage.deleteSchedule(String(id));
+        setSchedules((prev) => prev.filter((s) => String(s.id) !== String(id)));
         return { success: true };
       }
 
       const { error } = await supabase.from('horarios').delete().eq('id', id);
       if (error) throw error;
-      setSchedules((prev) => prev.filter((s) => s.id !== id));
+      setSchedules((prev) => prev.filter((s) => String(s.id) !== String(id)));
       return { success: true };
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Error al eliminar horario';
@@ -415,6 +450,8 @@ export const DeviceProvider: React.FC<{ children: React.ReactNode }> = ({ childr
           mac_id: device.mac_id,
           evento,
           detalles: detalles || defaultDetail,
+          medicamento: schedules[0]?.medicamento || 'Medicamento programado',
+          dosis: schedules[0]?.dosis || '1 pastilla',
         })
         .select()
         .single();
